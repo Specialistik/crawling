@@ -1,0 +1,14 @@
+[07.08.2020-20:41]: Сессия для 79674619120 была сохранена успешно. Было отправлено 5 сообщений на товары:
+    https://www.avito.ru/moskva/avtomobili/audi_q7_2007_1973832796
+    https://www.avito.ru/vyazma/avtomobili/audi_a6_2006_1856470666
+    https://www.avito.ru/moskva/avtomobili/audi_a6_2010_1968075975
+    https://www.avito.ru/moskva/avtomobili/audi_a6_2014_1967467182
+    https://www.avito.ru/moskva/avtomobili/audi_a4_2008_1976442583
+[07.08.2020-21:04]: Сессия для 79290030558 была сохранена успешно. Было отправлено 3 сообщения на товары:
+    https://www.avito.ru/moskva/avtomobili/audi_q7_2007_1973832796
+    https://www.avito.ru/vyazma/avtomobili/audi_a6_2006_1856470666
+    https://www.avito.ru/moskva/avtomobili/audi_a6_2010_1968075975
+[07.08.2020-21:05]: Сессия для 79674619120 была сохранена успешно. Было отправлено 3 сообщения на товары:
+    https://www.avito.ru/moskva/avtomobili/audi_q7_2007_1973832796
+    https://www.avito.ru/vyazma/avtomobili/audi_a6_2006_1856470666
+    https://www.avito.ru/moskva/avtomobili/audi_a6_2010_1968075975

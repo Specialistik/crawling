@@ -1,0 +1,22 @@
+Traceback (most recent call last):
+  File "main.py", line 145, in complete_activation
+    browser.find_element_by_xpath('//*[@id="root"]/div/div[2]/div/main/div/div/div/form/div[3]/div/div[2]/div/div[2]/div[2]/button').click()
+  File "C:\Python38\lib\site-packages\selenium\webdriver\remote\webdriver.py", line 394, in find_element_by_xpath
+    return self.find_element(by=By.XPATH, value=xpath)
+  File "C:\Python38\lib\site-packages\selenium\webdriver\remote\webdriver.py", line 976, in find_element
+    return self.execute(Command.FIND_ELEMENT, {
+  File "C:\Python38\lib\site-packages\selenium\webdriver\remote\webdriver.py", line 321, in execute
+    self.error_handler.check_response(response)
+  File "C:\Python38\lib\site-packages\selenium\webdriver\remote\errorhandler.py", line 242, in check_response
+    raise exception_class(message, screen, stacktrace)
+selenium.common.exceptions.NoSuchElementException: Message: no such element: Unable to locate element: {"method":"xpath","selector":"//*[@id="root"]/div/div[2]/div/main/div/div/div/form/div[3]/div/div[2]/div/div[2]/div[2]/button"}
+  (Session info: chrome=85.0.4183.102)
+
+Traceback (most recent call last):
+  File "main.py", line 419, in load_cookies
+    cookies = pickle.load(c)
+EOFError: Ran out of input
+Traceback (most recent call last):
+  File "main.py", line 419, in load_cookies
+    cookies = pickle.load(c)
+EOFError: Ran out of input

@@ -1,0 +1,16 @@
+android.widget.FrameLayout  
+   android.widget.ImageButton  
+   android.widget.TextView  +79002452725
+   android.widget.TextView  Last online yesterday at 8:43 AM
+   android.widget.TextView com.viber.voip:id/menu_viber_call 
+   android.widget.TextView com.viber.voip:id/menu_conversation_info 
+   android.widget.ImageView  
+   android.view.ViewGroup  
+      android.widget.RelativeLayout com.viber.voip:id/recent_list 
+         android.widget.ListView com.viber.voip:id/conversation_list 
+            android.widget.FrameLayout  
+      android.widget.CheckBox com.viber.voip:id/btn_options 
+      android.widget.CheckBox com.viber.voip:id/btn_sticker 
+      android.widget.EditText com.viber.voip:id/send_text Я твоей маме вайф
+      android.widget.ImageView com.viber.voip:id/secure_icon 
+      android.widget.ImageButton com.viber.voip:id/btn_send_extra 
