@@ -1,16 +1,26 @@
 # -*- coding: utf-8 -*-
-from selenium import webdriver
-from selenium.webdriver.common.keys import Keys
-from selenium.webdriver.common.action_chains import ActionChains
-from selenium.common.exceptions import NoSuchElementException
-from bs4 import BeautifulSoup
-from time import sleep, time
+import datetime
+import email
+import imaplib
+import json
+import os
+import pickle
+import sys
+import threading
+import warnings
+import zipfile
 from random import choice, randint
-from twocaptcha import TwoCaptcha
 from threading import Thread
+from time import sleep, time
 from traceback import format_exc
-import os, imaplib, email, pickle, requests, json, datetime, zipfile, warnings, sys
-import pre_action, threading
+
+import requests
+from bs4 import BeautifulSoup
+from selenium import webdriver
+from selenium.common.exceptions import NoSuchElementException
+from selenium.webdriver.common.action_chains import ActionChains
+from selenium.webdriver.common.keys import Keys
+from twocaptcha import TwoCaptcha
 
 debug = False
 Use_Proxy = True
@@ -18,63 +28,115 @@ warnings.filterwarnings("ignore")
 
 CAPTCHA_API_KEY = 'f0ef70eefed3b21ecae72c7f0c12961b'
 
-lock = threading.Lock()
+lock = threading.Lock() 
+global second_script 
+second_script = True
 
 def log_error():
     with open('error.txt', 'a') as err_file:
         for s in format_exc().splitlines():
-            print(s, file=err_file)
+            err_file.write(s)
+            
 
-def get_browser(use_proxy=Use_Proxy, headless=False): # ----------------------------------------------------------------------------------------------PROXY!!!!!!
-	chrome_options = webdriver.ChromeOptions()
-	if Use_Proxy:
-		pluginfile = get_proxy(*read_proxy())
-		chrome_options.add_extension(pluginfile)
-	chrome_options.add_argument('--log-level=3')
+def read_links():
+    	with open('input/randtext&findlink.txt') as f:
+		links = tuple(map(lambda x: x[x.find(':')+1:].strip('\n'), f.readlines()))
+	return links
 
-	chrome_options.add_argument("--disable-notifications")
-	if not headless:
-		chrome_options.add_argument("-start-maximized")
-	else:
-	    chrome_options.add_argument('window-size=640,480')
 
-	path = os.path.dirname(os.path.abspath(__file__))
-	browser = webdriver.Chrome(os.path.join(path, 'chromedriver'), chrome_options=chrome_options)
+def check_manager(num, link):
+	if (not os.path.isdir('products/link_' + str(num))):
+		os.mkdir('products/link_' + str(num))
+	response_end = requests.get(link).text
+	soup_end = BeautifulSoup(response_end, "html.parser")
+	e_url = soup_end.find_all("a", class_="ListingPagination-module__page")[-1]['href']
+	e = int(e_url[e_url.find('page=')+5:])
+	
+	for page in range(1, e+1):
+		check(num, link, page)
 
-	return browser
+	print('\nСсылки на все товыры получены')
+
+
+def check(num, link, page):
+	print('Ссылка ' + str(num) + ' - обработка страницы ' + str(page) + ' из 99')
+	good_products = []
+	html_page = requests.get(link + '&page=' + str(page)).text
+	soup = BeautifulSoup(html_page, "html.parser")
+	products = map(lambda x: x['href'].strip(' \n'), soup.find_all("a", class_="ListingItemTitle-module__link"))
+	with open('blacklist.txt') as black:
+		blacklist = black.read()
+	with open('products/link_' + str(num) + '/good_products.txt', 'a') as f:
+		for product in products:
+			if not(product in blacklist):
+				product_page = requests.get(product).text
+                pr_soup = BeautifulSoup(product_page, "html.parser")
+                btn = pr_soup.find_all("button", class_="PersonalMessage_type_button")
+                sold = pr_soup.find_all('div', class_='CardSold')
+                if len(btn) != 0 and len(sold) == 0:
+                    good_products.append(product)
+                else:
+                    with lock:
+                        with open('blacklist.txt', 'a') as black:
+                            black.write(product)
+	#with lock:
+	#	with open('products/link_' + str(num) + '/good_products.txt', 'a') as f:
+	#		f.write(good_products)
+
+
+def main_pre_action():
+	links = read_links()
+	th = []
+	for num, link in enumerate(links):
+		if second_script:
+			th.append(Thread(target=check_manager, args=(num, link)))
+			th[-1].start()
+			while len(th) > 5:
+				i = 0
+				while i < len(th):
+					if not th[i].is_alive():
+						th[i].join()
+						del th[i]
+						continue
+					i += 1
+				sleep(1)
+		else:
+			for thread in th:
+				thread.join()
+			break
+
+def end():
+	second_script = False
+
+def get_browser():
+    chrome_options = webdriver.ChromeOptions()
+    plugin_file = get_proxy(*read_proxy())
+    chrome_options.add_extension(plugin_file)
+    chrome_options.add_argument('--log-level=3')
+    chrome_options.add_argument("--disable-notifications")
+    chrome_options.add_argument("-start-maximized")
+    path = os.path.dirname(os.path.abspath(__file__))
+    browser = webdriver.Chrome(os.path.join(path, 'chromedriver'), chrome_options=chrome_options)
+    assert isinstance(browser, object)
+    return browser
 
 
 def get_credentials(filename):
-    try:
-        credents = []
-        with open(filename) as f:
-            for line in f.readlines():
-                credents.append({'email': line.split()[0], 'pw': line.split()[1]})
-        return credents
-    except Exception:
-        print('email и пароль введены некорректно!')
-        input('Для завершения работы введите любой символ... ')
-        exit()
+    with open(filename) as f:
+        return f.readlines()
 
 
 def auth(browser, num, login, pw):
     b = time()
     while time()-b < 30:
         while time()-b < 10:
-            try:
-                browser.find_element_by_link_text('Зарегистрироваться')
-                break
-            except:
-                sleep(1)
-                pass
+            browser.find_element_by_link_text('Зарегистрироваться')
         else:
             cur_url = browser.current_url
             browser.get(cur_url)
             continue
-        break
     else:
         raise Exception('Время ожидания кнопки "Зарегистрироваться" истекло')
-
 
     browser.find_element_by_link_text('Зарегистрироваться').click()
     sleep(3)
@@ -94,10 +156,7 @@ def auth(browser, num, login, pw):
         browser.find_element_by_name('phoneCode')
     except Exception:
         sleep(32)
-        try:
-            browser.find_element_by_link_text('Отправить код sms').click()
-        except:
-            pass
+        browser.find_element_by_link_text('Отправить код sms').click()
 
     return login, pw
 
@@ -107,14 +166,12 @@ def get_number():
     r = requests.get(URL)
     print('sms activate response is ' + r.text)
     spl = r.text.split(':')
-    #print(r.text)
     id_act, num = spl[1], spl[2]
     return id_act, num
 
 
 def sms_activate(id_act):
     URL0 = 'https://sms-activate.ru/stubs/handler_api.php?api_key=e1bfd58294A07360305082d40A929d1d&action=getStatus&id=' + id_act
-
     begin = time()
     response = requests.get(URL0).text
     print('Ожидание кода из sms...')
@@ -128,7 +185,6 @@ def sms_activate(id_act):
         return code
     else:
         raise Exception('Сервис sms активации не отвечает')
-
 
 def complete_activation(browser, code):
     print('complate activation with the code ' + code)
@@ -162,9 +218,8 @@ def first_browser_action(browser, email=None):
     browser.switch_to_window(windows[1])
     tryes = 1
     while tryes <= 1:
-        id_act, num = get_number()
-        print('id_act is ' + id_act)
         try:
+            id_act, num = get_number()
             alphavit = 'qwertyuiopasdfghjklzxcvbnm'
             login = choice(alphavit)
             login += num
@@ -172,19 +227,17 @@ def first_browser_action(browser, email=None):
                 login += choice(alphavit)
             pw = 'ivanzubov321654987'
             auth(browser, num, login, pw)
+            """
             try:
                 sleep(4)
                 browser.find_element_by_class_name('error-message')
             except:
                 pass
             else:
-                try:
-                    URL = 'https://sms-activate.ru/stubs/handler_api.php?api_key=e1bfd58294A07360305082d40A929d1d&action=setStatus&status=8&id=' + id_act
-                    print(URL)
-                    r = requests.post(URL)
-                except:
-                    pass
-                return
+            """
+            URL = 'https://sms-activate.ru/stubs/handler_api.php?api_key=e1bfd58294A07360305082d40A929d1d&action=setStatus&status=8&id=' + id_act
+            # print(URL)
+            r = requests.post(URL)
             code = sms_activate(id_act)
             sleep(1)
             complete_activation(browser, code)
@@ -205,18 +258,14 @@ def first_browser_action(browser, email=None):
             assert 'ACCESS_CANCEL' in r.text, 'Отменить активацию номера не удалось'
             tryes += 1
             continue
-    else:
-        raise Exception('From first_browser_action')
 
     login += '@yandex.ru'
     with open('input/emails&passes.txt', 'a') as f:
-        print(login, pw, file=f)
+        f.write(login + pw)
 
     windows = browser.window_handles
     browser.switch_to_window(windows[0])
-
     return login, pw
-
 
 def second_browser_action(browser, code, link):
     browser.find_element_by_xpath('//*[@id="app"]/div/div/div/form/div/div[3]/div[2]/label/div/span/input').send_keys(code)
@@ -259,7 +308,8 @@ def check_email(email, pw, again=False):
         except Exception:
             print('Ошибка авторизации email или верифицировать email не удалось')
             with open('badmail.txt', 'a') as f:
-                print(email, pw, file=f)
+                f.writelines(email + pw)
+                #print(email, pw, file=f)
             raise Exception
 
     return code
@@ -352,7 +402,7 @@ def check_logined(browser):
     try:
         sleep(4)
         browser.find_element_by_link_text('Войти')
-    except:
+    except NoSuchElementException:
         return True
     else:
         return False
@@ -391,13 +441,15 @@ def save_cookies(browser, email, black_urls):
     else:
         end2 = 'ы'
     with open('session_log.txt', 'a', encoding='utf8') as log:
-        print(('[' + log_datetime + ']: Сессия для ' + email + ' была сохранена успешно. Было отправлено ' + L + ' сообщени' + end1 + ' на товар ' + end2 + ' :'), file=log)
+        log.write('[' + log_datetime + ']: Сессия для ' + email + ' была сохранена успешно. Было отправлено ' + L + ' сообщени' + end1 + ' на товар ' + end2 + ' :')
         for url in black_urls:
-            print('    ', url, sep='', file=log)
+            log.write(url + '\r\n')
+            #print('    ', url, sep='', file=log)
     with open('cookies/' + email +'/' + email + '_log.txt', 'a', encoding='utf8') as log:
-        print(('[' + log_datetime + ']: Сессия для ' + email + ' была сохранена успешно. Было отправлено ' + L + ' сообщени' + end1 + ' на товар' + end2 + ':'), file=log)
+        log.write('[' + log_datetime + ']: Сессия для ' + email + ' была сохранена успешно. Было отправлено ' + L + ' сообщени' + end1 + ' на товар' + end2 + ':')
         for url in black_urls:
-            print('    ', url, sep='', file=log)
+            log.write(url + '\r\n')
+            #print('    ', url, sep='', file=log)
     with open('cookies/' + email + '/datetime.txt', 'w') as d:
         d.write(log_datetime)
 
@@ -415,7 +467,7 @@ def load_cookies(browser, email=None, direct=None):
                     if email in file:
                         target = file
                         break
-            with open(f"cookies/{email}/{target}", "rb") as c:
+            with open("cookies/" + email + "/" + target, "rb") as c:
                 cookies = pickle.load(c)
 
         for cookie in cookies:
@@ -436,7 +488,7 @@ def load_cookies(browser, email=None, direct=None):
 
 
 def main_action(browser, iterations, text, rand_inserts, dot, text_no, link=None):
-
+    dot = 1
     windows = browser.window_handles
     browser.switch_to.window(windows[0])
     try:
@@ -478,11 +530,7 @@ def main_action(browser, iterations, text, rand_inserts, dot, text_no, link=None
         except Exception as err:
             raise(err)
         finally:
-            try:
-                browser.find_element_by_class_name('ChatApp__close').click()
-            except:
-                pass
-
+            browser.find_element_by_class_name('ChatApp__close').click()
 
     black_urls = []
     if link:
@@ -585,11 +633,11 @@ def main_action(browser, iterations, text, rand_inserts, dot, text_no, link=None
                     if not link:
                         with open('products/link_' + text_no + '/good_products.txt', 'w') as l:
                             try:
-                                print(*products[1:], sep='', end='', file=l)
+                                l.write(*products[1:])
                             except:
                                 log_error()
                     with open('blacklist.txt', 'a') as black:
-                        print(product.strip(' \n'), file=black)
+                        black.write(product.strip(' \n'))
 
             try:
                 windows = browser.window_handles
@@ -603,48 +651,37 @@ def main_action(browser, iterations, text, rand_inserts, dot, text_no, link=None
     sleep(3)
     return black_urls
 
-def get_randtexts(mode):
-    try:
-        texts, rand_inserts, dots = [], [], []
+
+def get_random_texts(mode):
+    texts, rand_inserts, dots, links = [], [], [], []
+    with open('input/randtext&findlink.txt') as f:
+        line = f.readline()
+        first_dot = line.find('.') # 1 тчк
+        #dot = int(line[:first_dot])
+        
+        line = line[first_dot+1:]
+        two_dots = line.find(':')
+        text = line[:two_dots]
         if mode == 2:
-            links = []
-        with open('input/randtext&findlink.txt') as f:
-            for line in f.readlines():
-                first_dot = line.find('.')
-                dot = int(line[:first_dot])
-                line = line[first_dot+1:]
-                two_dots = line.find(':')
-                text = line[:two_dots]
-                if mode == 2:
-                    link = line[two_dots+1:]
+            link = line[two_dots+1:]
 
-                assert text.count('{') == text.count('}')
+        assert text.count('{') == text.count('}')
+        rand_count = text.count('{')
+        rand_insert = [() for i in range(rand_count)]
+        for i in range(rand_count):
+            b = text.find('{')
+            e = text.find('}')
+            rand_insert[i] = text[b+1:e].split('|')
+            try:
+                text = text[:b] + '$$' + str(i) + '$$' + text[e+1:]
+            except Exception:
+                text = text[:b] + '$$' + str(i) + '$$'
 
-                rand_count = text.count('{')
-                rand_insert = [() for i in range(rand_count)]
-                for i in range(rand_count):
-                    b = text.find('{')
-                    e = text.find('}')
-                    rand_insert[i] = text[b+1:e].split('|')
-                    try:
-                        text = text[:b] + '$$' + str(i) + '$$' + text[e+1:]
-                    except Exception:
-                        text = text[:b] + '$$' + str(i) + '$$'
+        texts.append(text)
+        rand_inserts.append(rand_insert)
+        #dots.append(dot)
 
-                texts.append(text)
-                rand_inserts.append(rand_insert)
-                dots.append(dot)
-                if mode == 2:
-                    links.append(link)
-
-    except Exception as err:
-        print('Файл "input/randtext&findlink.txt" содержит некорректную ссылку или формат рандомного текста, или файл с данными отсутствует!')
-        print(err)
-        input('Для завершения работы введите любой символ... ')
-        exit()
-    if mode == 2:
-        return texts, rand_inserts, dots, links
-    return texts, rand_inserts, dots
+    return texts, rand_inserts, [] #dots
 
 
 def check_randtext(texts, rand_inserts):
@@ -653,27 +690,17 @@ def check_randtext(texts, rand_inserts):
         for j in range(len(rand_insert)):
             rand_text = rand_text.replace('$$' + str(j) + '$$', choice(rand_insert[j]))
         print('Один из возможных вариантов рандомного текста:')
-        print(rand_text)
-        print()
-    #input('Если представленный текст отличается от ожидаемого, значит формат его ввода некорректен, и чтобы его исправить следует закрыть программу и внести изменения в "random_text.txt". Для продолжения введите любой символ... ')
+        #print(rand_text)
 
 
 def get_iterations_and_acc():
-    try:
-        with open('input/count.txt') as f:
-            acc, iterations = f.read().split(':')
-            acc = int(acc)
-            iterations = list(map(int, iterations.split('-')))
-    except Exception:
-        print('Некорректное числа, или файл с ними отсутствует!')
-        input('Для завершения работы введите любой символ... ')
-        exit()
-
-    return iterations, acc
-
+    with open('input/count.txt') as f:
+        acc, iterations = f.read().split(':')
+        acc = int(acc)
+        iterations = list(map(int, iterations.split('-')))
+        return iterations, acc
 
 def get_cookies_emails():
-    emails = []
     emails_with_time = []
     emails_without_time = []
     path = os.path.dirname(os.path.abspath(__file__))
@@ -700,152 +727,91 @@ def get_cookies_emails():
     emails_without_time.sort(key=lambda x: x[0])
     emails = emails_without_time + emails_with_time
     emails = list(map(lambda x: x[1], emails))
-
     return emails
 
 
-
 def main():
-    print(welcome_msg)
-    try:
-        """
-        read = True
-        while read:
+    mode = 1
+    headless = False
+
+    if mode == 1:
+        texts, rand_inserts, dots = get_random_texts(mode)
+        iterations, acc = get_iterations_and_acc()
+        check_randtext(texts, rand_inserts)
+        th = Thread(target=main_pre_action)
+        th.start()
+        sleep(5)
+
+        text_no = 0
+        sent_messages_by_link = 0
+        i = 0
+        while i < acc:
+            text, rand_insert = texts[text_no], rand_inserts[text_no]
+            print(str(i + 1) + ' Создание нового аккаунта Яндекс...')
+            browser = get_browser()
+            login, pw = first_browser_action(browser)
+            print(str(i + 1) + 'Выполнение основного действия...')
+            if not check_logined(browser):
+                print('Авторизация не удалась. Сессия для ' + login + ' не создана')
+            browser.quit()
+            black_urls = main_action(browser, iterations, text, rand_insert, 1, text_no)
+            sent_messages_by_link += len(black_urls)
+            save_cookies(browser, login, black_urls)
+            print(str(i + 1) + ' Готово! Сессия для ' + login + ' успешно сохранена')
+
+            text_no += 1
+            i += 1
+            browser.quit()
+
+            if text_no >= len(texts):
+                text_no = 0
+                print('Рассылка сообщений по текущей ссылке завершена. Было отправлено ' + str(sent_messages_by_link) + ' сообщений(я)')
+                sent_messages_by_link = 0
+    else:
+        emails = get_cookies_emails()
+        text_no = 0
+        sent_messages_by_link = 0
+        texts, rand_inserts, dots = get_random_texts(1)
+        iterations, acc = get_iterations_and_acc()
+
+        check_randtext(texts, rand_inserts)
+
+        th = Thread(target=main_pre_action)
+        th.start()
+        sleep(5)
+
+        for email in emails:
             try:
-                mode = int(input('Введите режим работы: 1 - запись сессии, используя регистрацию через Яндекс, 2 - запись сессии, используя вход через email, 3 - рассылка сообщений, используя авторизацию по сохранённой сессии: '))
-                assert mode == 1 or mode == 2 or mode == 3
-                read = False
-            except Exception:
-                print('Введён некорректный режим работы!')
-
-        read = True
-        while read:
-            try:
-                headless = int(input('Введите режим отображения браузера: 1 - полноэкранный, 2 - уменьшенный: '))
-                assert headless == 1 or headless == 2
-                headless = True if headless == 2 else False
-                read = False
-            except Exception:
-                print('Введён некорректный режим работы!')
-
-        read = True
-        while read:
-        	try:
-        		global Use_Proxy
-        		Use_Proxy = int(input('Использовать прокси? : 1 - да, 2 - нет: '))
-        		assert Use_Proxy == 1 or Use_Proxy == 2
-        		Use_Proxy = True if Use_Proxy == 1 else False
-        		read = False
-        	except Exception:
-        		print('Введён некорректный режим работы!')
-        """
-        mode = 2
-        headless = False
-
-        if mode == 1:
-            texts, rand_inserts, dots = get_randtexts(mode)
-            iterations, acc = get_iterations_and_acc()
-
-            check_randtext(texts, rand_inserts)
-
-
-            th = Thread(target=pre_action.main_pre_action)
-            th.start()
-            sleep(5)
-
-            text_no = 0
-            sent_messages_by_link = 0
-            i = 0
-            while i < acc:
+                print('Открытие сессии для ' + email)
+                text, rand_insert, dot = texts[text_no], rand_inserts[text_no], 3 #dots[text_no]
+                browser = get_browser()
+                browser.get('https://auto.ru')
                 try:
-                    text, rand_insert, dot = texts[text_no], rand_inserts[text_no], dots[text_no]
-                    print(str(i + 1) + ' Создание нового аккаунта Яндекс...')
-                    browser = get_browser(headless=headless)
-                    try:
-                        login, pw = first_browser_action(browser)
-                    except Exception:
-                        continue
-                    print(str(i + 1) + 'Выполнение основного действия...')
-                    if not check_logined(browser):
-                        print('Авторизация не удалась. Сессия для ' + login + ' не создана')
-                        browser.quit()
-                        continue
-                    try:
-                        black_urls = main_action(browser, iterations, text, rand_insert, dot, text_no)
-                        sent_messages_by_link += len(black_urls)
-                        save_cookies(browser, login, black_urls)
-                        print(str(i + 1) + ' Готово! Сессия для ' + login + ' успешно сохранена')
-                    except Exception:
-                        pass
-
+                    load_cookies(browser, email)
+                except Exception:
+                    continue
+                browser.get('https://auto.ru')
+                if not check_logined(browser):
+                    print('Сессия для ' + email + ' устарела. Вход не выполнен')
+                    browser.quit()
                     text_no += 1
-                    i += 1
-                    try:
-                        browser.quit()
-                    except:
-                        pass
-                finally:
-                    if text_no >= len(texts):
-                        text_no = 0
-                        print('Рассылка сообщений по текущей ссылке завершена. Было отправлено ' + str(sent_messages_by_link) + ' сообщений(я)')
-                        sent_messages_by_link = 0
-        else:
-            emails = get_cookies_emails()
-            text_no = 0
-            sent_messages_by_link = 0
-            texts, rand_inserts, dots = get_randtexts(1)
-            iterations, acc = get_iterations_and_acc()
-
-            check_randtext(texts, rand_inserts)
-
-            th = Thread(target=pre_action.main_pre_action)
-            th.start()
-            sleep(5)
-
-            for email in emails:
+                    continue
                 try:
-                    print('Открытие сессии для ' + email)
-                    text, rand_insert, dot = texts[text_no], rand_inserts[text_no], dots[text_no]
-                    browser = get_browser(headless=headless)
-                    browser.get('https://auto.ru')
-                    try:
-                        load_cookies(browser, email)
-                    except Exception:
-                        continue
-                    browser.get('https://auto.ru')
-                    if not check_logined(browser):
-                        print('Сессия для ' + email + ' устарела. Вход не выполнен')
-                        browser.quit()
-                        text_no += 1
-                        continue
-                    try:
-                        black_urls = main_action(browser, iterations, text, rand_insert, dot, text_no)
-                        sent_messages_by_link += len(black_urls)
-                        save_cookies(browser, email, black_urls)
-                        print('Готово! Сессия для ' + email + ' успешно перезаписана')
-                    except Exception:
-                        pass
+                    black_urls = main_action(browser, iterations, text, rand_insert, dot, text_no)
+                    sent_messages_by_link += len(black_urls)
+                    save_cookies(browser, email, black_urls)
+                    print('Готово! Сессия для ' + email + ' успешно перезаписана')
+                except Exception:
+                    pass
 
-                    text_no += 1
+                text_no += 1
+                browser.quit()
 
-                    try:
-                        browser.quit()
-                    except:
-                        pass
-                finally:
-                    if text_no >= len(texts):
-                        text_no = 0
-                        print('Рассылка сообщений по текущей ссылке завершена. Было отправлено ' + str(sent_messages_by_link) + ' сообщений(я)')
-                        sent_messages_by_link = 0
-
-
-    except Exception as err:
-        log_error()
-
-    finally:
-        pre_action.end()
-        input('Для завершения работы введите любой символ...\n')
-        exit()
+            finally:
+                if text_no >= len(texts):
+                    text_no = 0
+                    print('Рассылка сообщений по текущей ссылке завершена. Было отправлено ' + str(sent_messages_by_link) + ' сообщений(я)')
+                    sent_messages_by_link = 0
 
 
 def open_for_user(email=None, direct=None):
@@ -880,15 +846,8 @@ def read_proxy():
     return proxy, port, login, pw
 
 
-
 def get_proxy(host, port, user, password):
-
     PROXY_HOST, PROXY_PORT, PROXY_USER, PROXY_PASS = host, int(port), user, password
-##    PROXY_HOST = '185.126.86.108'  # rotating proxy or host
-##    PROXY_PORT = 8761 # port
-##    PROXY_USER = '100x10z005' # username
-##    PROXY_PASS = 'BJXScE' # password
-
 
     manifest_json = """
     {
@@ -942,9 +901,7 @@ def get_proxy(host, port, user, password):
     );
     """ % (PROXY_HOST, PROXY_PORT, PROXY_USER, PROXY_PASS)
 
-
     pluginfile = 'proxy_auth_plugin.zip'
-
     with zipfile.ZipFile(pluginfile, 'w') as zp:
         zp.writestr("manifest.json", manifest_json)
         zp.writestr("background.js", background_js)
