@@ -1,13 +1,3 @@
-#-------------------------------------------------------------------------------
-# Name:        module1
-# Purpose:
-#
-# Author:      Alex
-#
-# Created:     21.06.2020
-# Copyright:   (c) Alex 2020
-# Licence:     <your licence>
-#-------------------------------------------------------------------------------
 
 import requests, os, zipfile, pickle, json, warnings, datetime, sys
 from time import sleep, time
