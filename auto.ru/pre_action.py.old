@@ -9,14 +9,14 @@ second_script = True
 
 
 def read_links():
-	with open('input/randtext&findlink.txt', encoding='utf-8-sig') as f:
+	with open('input/randtext&findlink.txt') as f:
 		links = tuple(map(lambda x: x[x.find(':')+1:].strip('\n'), f.readlines()))
 	return links
 
 
 def check_manager(num, link):
 	try:
-		os.mkdir(f'products/link_{num}')
+		os.mkdir('products/link_' + str(num))
 	except Exception:
 		pass
 
@@ -55,8 +55,8 @@ def check(num, link, page):
 						print(product, file=black)
 	with lock:
 		with open(f'products/link_{num}/good_products.txt', 'a') as f:
-			print(*good_products, sep='\n', file=f)
-
+			f.write(good_products)
+			#print(*good_products, sep='\n', file=f)
 
 
 def main_pre_action():

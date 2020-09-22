@@ -22,17 +22,98 @@ from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.common.keys import Keys
 from twocaptcha import TwoCaptcha
 
+
 debug = False
 Use_Proxy = True
 warnings.filterwarnings("ignore")
 
 CAPTCHA_API_KEY = 'f0ef70eefed3b21ecae72c7f0c12961b'
 
+
 lock = threading.Lock() 
 global second_script 
 second_script = True
 
-def log_error():
+
+def read_links():
+    with open('input/randtext&findlink.txt') as f:
+        links = tuple(map(lambda x: x[x.find(':')+1:].strip('\n'), f.readlines()))
+    return links
+
+
+def check_manager(num, link):
+    try:
+        os.mkdir('products/link_' + str(num))
+    except Exception:
+        pass
+
+    response_end = requests.get(link).text
+    soup_end = BeautifulSoup(response_end, "html.parser")
+    e_url = soup_end.find_all("a", class_="ListingPagination-module__page")[-1]['href']
+    e = int(e_url[e_url.find('page=')+5:])
+
+    for page in range(1, e+1):
+        check(num, link, page)
+
+    print('\nСсылки на все товыры получены')
+
+
+def check(num, link, page):
+    print('Ссылка ' + str(num) + ' - обработка страницы ' + str(page) + ' из 99')
+    good_products = []
+    html_page = requests.get(f'{link}&page={page}').text
+    soup = BeautifulSoup(html_page, "html.parser")
+    products = map(lambda x: x['href'].strip(' \n'), soup.find_all("a", class_="ListingItemTitle-module__link"))
+    # print(*goods, sep='\n')
+    with open('blacklist.txt') as black:
+        blacklist = black.read()
+    for product in products:
+        if not(product in blacklist):
+            product_page = requests.get(product).text
+            pr_soup = BeautifulSoup(product_page, "html.parser")
+            btn = pr_soup.find_all("button", class_="PersonalMessage_type_button")
+            sold = pr_soup.find_all('div', class_='CardSold')
+            if len(btn) != 0 and len(sold) == 0:
+                good_products.append(product)
+            else:
+                with lock:
+                    with open('blacklist.txt', 'a') as black:
+                        black.write(product)
+                        #print(product, file=black)
+    with lock:
+        with open('products/link_' + str(num) + '/good_products.txt', 'a') as f:
+            f.write(good_products)
+
+
+def main_pre_action():
+    links = read_links()
+    th = []
+    for num, link in enumerate(links):
+        th.append(Thread(target=check_manager, args=(num, link)))
+        th[-1].start()
+        while len(th) > 5:
+            i = 0
+            while i < len(th):
+                if not th[i].is_alive():
+                    th[i].join()
+                    del th[i]
+                    continue
+                i += 1
+            sleep(1)
+        else:
+            for thread in th:
+                thread.join()
+            break
+
+
+def end():
+    global second_script
+    second_script = False
+
+
+def log_error(error_text=""):
+    if error_text != "":
+        input(error_text)
     with open('error.txt', 'a') as err_file:
         for s in format_exc().splitlines():
             err_file.write(s)
@@ -118,12 +199,40 @@ def get_browser():
     path = os.path.dirname(os.path.abspath(__file__))
     browser = webdriver.Chrome(os.path.join(path, 'chromedriver'), chrome_options=chrome_options)
     assert isinstance(browser, object)
+
+
+def get_browser(use_proxy=Use_Proxy, headless=False): # ----------------------------------------------------------------------------------------------PROXY!!!!!!
+    chrome_options = webdriver.ChromeOptions()
+    if Use_Proxy:
+        pluginfile = get_proxy(*read_proxy())
+        chrome_options.add_extension(pluginfile)
+    chrome_options.add_argument('--log-level=3')
+
+    chrome_options.add_argument("--disable-notifications")
+    if not headless:
+        chrome_options.add_argument("-start-maximized")
+    else:
+        chrome_options.add_argument('window-size=640,480')
+
+    path = os.path.dirname(os.path.abspath(__file__))
+    browser = webdriver.Chrome(os.path.join(path, 'chromedriver'), chrome_options=chrome_options)
     return browser
 
 
 def get_credentials(filename):
     with open(filename) as f:
         return f.readlines()
+    try:
+        credents = []
+        with open(filename) as f:
+            for line in f.readlines():
+                credents.append({'email': line.split()[0], 'pw': line.split()[1]})
+        return credents
+    except Exception:
+        log_error('email и пароль введены некорректно!')
+        #print('email и пароль введены некорректно!')
+        #input('Для завершения работы введите любой символ... ')
+        exit()
 
 
 def auth(browser, num, login, pw):
@@ -131,6 +240,13 @@ def auth(browser, num, login, pw):
     while time()-b < 30:
         while time()-b < 10:
             browser.find_element_by_link_text('Зарегистрироваться')
+            try:
+                browser.find_element_by_link_text('Зарегистрироваться')
+                break
+            except Exception:
+                log_error('Не найдена элемент "зарегистрироваться"')
+                sleep(1)
+                pass
         else:
             cur_url = browser.current_url
             browser.get(cur_url)
@@ -155,15 +271,19 @@ def auth(browser, num, login, pw):
     try:
         browser.find_element_by_name('phoneCode')
     except Exception:
+        log_error('Не найден элемент для ввода кода подтверждения')
         sleep(32)
         browser.find_element_by_link_text('Отправить код sms').click()
-
+        try:
+            browser.find_element_by_link_text('Отправить код sms').click()
+        except Exception:
+            log_error('Не найден элемент "отправить код sms"')
     return login, pw
 
 
 def get_number():
-    URL = 'https://sms-activate.ru/stubs/handler_api.php?api_key=e1bfd58294A07360305082d40A929d1d&action=getNumber&service=ya&forward=0&operator=any&country=0'
-    r = requests.get(URL)
+    url = 'https://sms-activate.ru/stubs/handler_api.php?api_key=e1bfd58294A07360305082d40A929d1d&action=getNumber&service=ya&forward=0&operator=any&country=0'
+    r = requests.get(url)
     print('sms activate response is ' + r.text)
     spl = r.text.split(':')
     id_act, num = spl[1], spl[2]
@@ -171,12 +291,12 @@ def get_number():
 
 
 def sms_activate(id_act):
-    URL0 = 'https://sms-activate.ru/stubs/handler_api.php?api_key=e1bfd58294A07360305082d40A929d1d&action=getStatus&id=' + id_act
+    url0 = 'https://sms-activate.ru/stubs/handler_api.php?api_key=e1bfd58294A07360305082d40A929d1d&action=getStatus&id=' + str(id_act)
     begin = time()
-    response = requests.get(URL0).text
+    response = requests.get(url0).text
     print('Ожидание кода из sms...')
     while not 'STATUS_OK' in response and time()-begin < 120:
-        response = requests.get(URL0).text
+        response = requests.get(url0).text
         print('sms activate response status' + response)
         sleep(2)
     if 'STATUS_OK' in response:
@@ -187,14 +307,13 @@ def sms_activate(id_act):
         raise Exception('Сервис sms активации не отвечает')
 
 def complete_activation(browser, code):
-    print('complate activation with the code ' + code)
     browser.find_element_by_name('phoneCode').send_keys(code)
     sleep(3)
     try:
         browser.find_element_by_xpath('//*[@id="root"]/div/div[2]/div/main/div/div/div/form/div[3]/div/div[2]/div/div[2]/div[2]/button').click()
         sleep(3)
     except Exception:
-        log_error()
+        log_error('Не найдена кнопка подтверждения кода активации')
 
     browser.find_element_by_xpath('//*[@id="root"]/div/div[2]/div/main/div/div/div/form/div[4]/span/button').click()
     sleep(3)
@@ -202,7 +321,7 @@ def complete_activation(browser, code):
         browser.find_element_by_xpath('//*[@id="root"]/div/div[1]/div[2]/main/div/div/div[3]/span/a').click()
         sleep(3)
     except:
-        log_error()
+        log_error('Не найдена ссылка')
 
 
 def first_browser_action(browser, email=None):
@@ -227,17 +346,18 @@ def first_browser_action(browser, email=None):
                 login += choice(alphavit)
             pw = 'ivanzubov321654987'
             auth(browser, num, login, pw)
-            """
             try:
                 sleep(4)
                 browser.find_element_by_class_name('error-message')
             except:
-                pass
+                log_error('Не найден элемент текста с ошибкой')
             else:
-            """
-            URL = 'https://sms-activate.ru/stubs/handler_api.php?api_key=e1bfd58294A07360305082d40A929d1d&action=setStatus&status=8&id=' + id_act
-            # print(URL)
-            r = requests.post(URL)
+                try:
+                    url = 'https://sms-activate.ru/stubs/handler_api.php?api_key=e1bfd58294A07360305082d40A929d1d&action=setStatus&status=8&id=' + id_act
+                    print('sms activate url is ' + url)
+                    r = requests.post(url)
+                except:
+                    log_error('Ошибка при попытке получения номера телефона с sms-activate')
             code = sms_activate(id_act)
             sleep(1)
             complete_activation(browser, code)
@@ -245,9 +365,9 @@ def first_browser_action(browser, email=None):
         except Exception:
             log_error()
 
-            URL = 'https://sms-activate.ru/stubs/handler_api.php?api_key=e1bfd58294A07360305082d40A929d1d&action=setStatus&status=8&id=' + id_act
-            print(URL)
-            r = requests.post(URL)
+            url = 'https://sms-activate.ru/stubs/handler_api.php?api_key=e1bfd58294A07360305082d40A929d1d&action=setStatus&status=8&id=' + id_act
+            print('Проставляем статус ' + url)
+            r = requests.post(url)
             print(r.text)
             if 'BAD_STATUS' in r.text:
                 code = sms_activate(id_act)
@@ -262,6 +382,12 @@ def first_browser_action(browser, email=None):
     login += '@yandex.ru'
     with open('input/emails&passes.txt', 'a') as f:
         f.write(login + pw)
+    login = '@yandex.ru'
+    try:
+        with open('input/emails&passes.txt', 'a') as f:
+            f.write(login + pw)
+    except:
+        log_error('Ошибка при сохранении логина и пароля')
 
     windows = browser.window_handles
     browser.switch_to_window(windows[0])
@@ -298,7 +424,6 @@ def check_email(email, pw, again=False):
     except Exception as err:
         try:
             print(err)
-##            input('...')
             verify_email(email, pw)
             if not again:
                 print('Верификация прошла успешно')
@@ -306,19 +431,16 @@ def check_email(email, pw, again=False):
             else:
                 raise Exception
         except Exception:
-            print('Ошибка авторизации email или верифицировать email не удалось')
+            log_error('Ошибка авторизации email или верифицировать email не удалось')
             with open('badmail.txt', 'a') as f:
                 f.writelines(email + pw)
-                #print(email, pw, file=f)
             raise Exception
-
     return code
 
 
 def verify_email(email, pw):
     print('Email не верифицирован. Попытка верификации...')
     chrome_options = webdriver.ChromeOptions()
-##    chrome_options.add_argument("headless") # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
     chrome_options.add_argument('--log-level=3')
     path = os.path.dirname(os.path.abspath(__file__))
     mini_browser = webdriver.Chrome(os.path.join(path, 'chromedriver'), chrome_options=chrome_options)
@@ -330,6 +452,7 @@ def verify_email(email, pw):
             mini_browser.find_element_by_xpath('//*[@id="root"]/div/div[3]/div/div/div/form/div[2]/div[2]/div[3]/div/div[1]/button')
             do = False
         except Exception:
+            log_error('Не найдена кнопка ')
             sleep(0.1)
             continue
     mini_browser.find_element_by_xpath('//*[@id="root"]/div/div[3]/div/div/div/form/div[2]/div[2]/div[3]/div/div[1]/button').click()
@@ -339,6 +462,7 @@ def verify_email(email, pw):
             mini_browser.find_element_by_name('password')
             do = False
         except Exception:
+            log_error('Не найден элемент для ввода пароля')
             sleep(0.1)
             continue
     sleep(1)
@@ -347,11 +471,9 @@ def verify_email(email, pw):
     mini_browser.find_element_by_xpath('//*[@id="root"]/div/div[3]/div/div/div/form/div[2]/div/div[3]/div/div[1]/div/button').click()
     try:
         sleep(1)
-##        input('...')
         mini_browser.find_element_by_xpath('//*[@id="app"]/div/div/form/div[1]/div/img').screenshot('captcha.png')
         try:
             print('Прохождение капчи...')
-##            input('...')
             code = get_captcha()
         except Exception as err:
             print('Ошибка получения кода капчи.')
@@ -362,18 +484,16 @@ def verify_email(email, pw):
         mini_browser.find_element_by_xpath('//*[@id="app"]/div/div/form/div[2]/div/div[1]/button').click()
 
     except Exception as err:
-        print(err)
+        log_error(err)
 
     mini_browser.quit()
 
+
 def get_captcha():
     solver = TwoCaptcha(CAPTCHA_API_KEY)
-
     params_captcha = {'lang': 'en'}
     result = solver.normal('captcha.png', **params_captcha)
     code = result['code']
-##    print(result)
-
     return code
 
 
@@ -393,8 +513,7 @@ def get_code(email, pw, not_code):
             int(code)
             break
         except Exception:
-            continue
-
+            log_error("Ошибка интерпретации кода подтверждения")
     return code
 
 
@@ -412,7 +531,7 @@ def save_cookies(browser, email, black_urls):
     try:
         os.mkdir('cookies/' + email)
     except Exception:
-        pass
+       log_error('Ошибка создания папки с куками')
     path = os.path.dirname(os.path.abspath(__file__))
     path = os.path.join(path, 'cookies', email)
     for dirpath, dirnames, filenames in os.walk(path):
@@ -473,7 +592,7 @@ def load_cookies(browser, email=None, direct=None):
         for cookie in cookies:
             browser.add_cookie(cookie)
     except Exception as err:
-        log_error()
+        log_error(err)
 
         try:
             with open("cookies/cookies_" + email + ".pkl", "rb") as c:
@@ -481,10 +600,8 @@ def load_cookies(browser, email=None, direct=None):
             for cookie in cookies:
                 browser.add_cookie(cookie)
         except Exception as err:
-            print(err)
-            print('Сессий для ' + email + ' не обнаружено или файл с сессией повреждён')
+            log_error(str(err) + 'Сессий для ' + email + ' не обнаружено или файл с сессией повреждён')
             browser.close()
-            raise(Exception)
 
 
 def main_action(browser, iterations, text, rand_inserts, dot, text_no, link=None):
@@ -495,7 +612,7 @@ def main_action(browser, iterations, text, rand_inserts, dot, text_no, link=None
         sleep(3)
         browser.find_element_by_class_name('ChatIndicator_unread')
     except Exception:
-        pass
+        log_error(u"Индикатор чата - есть непрочитанные сообщения")
     else:
         try:
             browser.find_element_by_class_name('TopNavigationChatIndicator__icon').click()
@@ -503,7 +620,6 @@ def main_action(browser, iterations, text, rand_inserts, dot, text_no, link=None
             with open('input/answer.txt', encoding='utf-8') as ans:
                 answers = ans.readlines()
             unreads = browser.find_elements_by_class_name('ChatListItem__unread')
-            # unreads = browser.find_elements_by_class_name('ChatListItem') # -------------------------------------------------------
             for i in range(0, len(unreads)):
                 try:
                     unread = unreads[i]
@@ -513,24 +629,27 @@ def main_action(browser, iterations, text, rand_inserts, dot, text_no, link=None
                     prev = '.'
                     ans_dots = 0
                     for i in range(len(last_msg)-1, -1, -1):
-                    	if last_msg[i] == '.' and prev == '.':
-                    		ans_dots += 1
-                    	else:
-                    		break
-                    	prev = last_msg[i]
+                        if last_msg[i] == '.' and prev == '.':
+                            ans_dots += 1
+                        else:
+                            break
+                        prev = last_msg[i]
                     answer = answers[ans_dots]
                     browser.find_element_by_class_name('ChatInput__textarea').send_keys(answer)
                     if not debug:
                         browser.find_element_by_class_name('ChatInput__send-button').click()                    #      !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
                         sleep(2)
                 except Exception as err:
-                    pass
-                    # print(err)
+                    log_error(str(err))
                 sleep(1)
         except Exception as err:
-            raise(err)
+            log_error(err)
         finally:
             browser.find_element_by_class_name('ChatApp__close').click()
+            try:
+                browser.find_element_by_class_name('ChatApp__close').click()
+            except:
+                log_error('Не найдена кнопка закрытия чата')
 
     black_urls = []
     if link:
@@ -559,16 +678,16 @@ def main_action(browser, iterations, text, rand_inserts, dot, text_no, link=None
 
             else:
                 try:
-                    with open('products/link_' + text_no + '/good_products.txt') as l:
+                    with open('products/link_' + str(text_no) + '/good_products.txt') as l:
                         products = l.readlines()
                     product = products[0]
                     browser.get(product)
                 except Exception:
-                    continue
+                    log_error('Ошибка получения списка для рассылки')
             try:
                 browser.find_element_by_class_name('ListingCarsFilters-module__container')
             except:
-                pass
+                log_error('Ошибка получения фильтров')
             else:
                 continue
             begin = time()
@@ -582,8 +701,8 @@ def main_action(browser, iterations, text, rand_inserts, dot, text_no, link=None
                 browser.find_element_by_class_name('CardSold')
                 iterations += 1
                 continue
-            except:
-                pass
+            except Exception:
+                log_error('Ошибка получения элемента "Машина продана"')
             browser.find_element_by_class_name('PersonalMessage_type_button').click()
             sleep(3)
             begin = time()
@@ -607,7 +726,7 @@ def main_action(browser, iterations, text, rand_inserts, dot, text_no, link=None
                         browser.find_element_by_class_name('ChatMessageBubble_sent')
                         break
                     except Exception:
-                        log_error()
+                        log_error('Ошибка получения элемента отправки сообщения в чат')
                 else:
                     print('Сообщение не отправлено!')
                     write_to_blacklist = False
@@ -631,11 +750,12 @@ def main_action(browser, iterations, text, rand_inserts, dot, text_no, link=None
             if write_to_blacklist:
                 with lock:
                     if not link:
-                        with open('products/link_' + text_no + '/good_products.txt', 'w') as l:
+                        with open('products/link_' + str(text_no) + '/good_products.txt', 'w') as products_file:
                             try:
                                 l.write(*products[1:])
+                                products_file.write(product)
                             except:
-                                log_error()
+                                log_error('Ошибка записи сущности в список сущностей good_products.txt')
                     with open('blacklist.txt', 'a') as black:
                         black.write(product.strip(' \n'))
 
@@ -645,23 +765,15 @@ def main_action(browser, iterations, text, rand_inserts, dot, text_no, link=None
                     browser.close()
                 browser.switch_to.window(windows[0])
             except Exception:
-                log_error()
+                log_error('Ошибка при переключении между окнами')
 
             i += 1
     sleep(3)
     return black_urls
 
-
-def get_random_texts(mode):
-    texts, rand_inserts, dots, links = [], [], [], []
-    with open('input/randtext&findlink.txt') as f:
-        line = f.readline()
-        first_dot = line.find('.') # 1 тчк
-        #dot = int(line[:first_dot])
-        
-        line = line[first_dot+1:]
-        two_dots = line.find(':')
-        text = line[:two_dots]
+def get_randtexts(mode):
+    try:
+        texts, rand_inserts, dots = [], [], []
         if mode == 2:
             link = line[two_dots+1:]
 
@@ -679,9 +791,14 @@ def get_random_texts(mode):
 
         texts.append(text)
         rand_inserts.append(rand_insert)
-        #dots.append(dot)
+        return texts, rand_inserts, [] #dots
 
-    return texts, rand_inserts, [] #dots
+    except Exception as err:
+        log_error(str(err) + 'Файл "input/randtext&findlink.txt" содержит некорректную ссылку или формат рандомного текста, или файл с данными отсутствует!')
+        exit()
+    if mode == 2:
+        return texts, rand_inserts, dots, links
+    return texts, rand_inserts, dots
 
 
 def check_randtext(texts, rand_inserts):
@@ -762,7 +879,46 @@ def main():
             text_no += 1
             i += 1
             browser.quit()
+       
+        mode = 1
+        headless = False
+        Use_Proxy = True
 
+        if mode == 1:
+            texts, rand_inserts, dots = get_randtexts(mode)
+            iterations, acc = get_iterations_and_acc()
+
+            check_randtext(texts, rand_inserts)
+
+
+            th = Thread(target=main_pre_action)
+            th.start()
+            sleep(5)
+
+            text_no = 0
+            sent_messages_by_link = 0
+            i = 0
+            while i < acc:
+                try:
+                    text, rand_insert, dot = texts[text_no], rand_inserts[text_no], dots[text_no]
+                    print(str(i + 1) + ' Создание нового аккаунта Яндекс...')
+                    browser = get_browser(headless=headless)
+                    try:
+                        login, pw = first_browser_action(browser)
+                    except Exception:
+                        continue
+                    print(str(i + 1) + 'Выполнение основного действия...')
+                    if not check_logined(browser):
+                        print('Авторизация не удалась. Сессия для ' + login + ' не создана')
+                        browser.quit()
+                        continue
+                    try:
+                        black_urls = main_action(browser, iterations, text, rand_insert, dot, text_no)
+                        sent_messages_by_link += len(black_urls)
+                        save_cookies(browser, login, black_urls)
+                        print(str(i + 1) + ' Готово! Сессия для ' + login + ' успешно сохранена')
+                    except Exception:
+                        pass
             if text_no >= len(texts):
                 text_no = 0
                 print('Рассылка сообщений по текущей ссылке завершена. Было отправлено ' + str(sent_messages_by_link) + ' сообщений(я)')
@@ -812,6 +968,19 @@ def main():
                     text_no = 0
                     print('Рассылка сообщений по текущей ссылке завершена. Было отправлено ' + str(sent_messages_by_link) + ' сообщений(я)')
                     sent_messages_by_link = 0
+
+                try:
+                    browser.quit()
+                    if text_no >= len(texts):
+                        text_no = 0
+                        print('Рассылка сообщений по текущей ссылке завершена. Было отправлено ' + str(sent_messages_by_link) + ' сообщений(я)')
+                        sent_messages_by_link = 0
+                except Exception as err:
+                    log_error(str(err))
+                finally:
+                    end()
+                    input('Для завершения работы введите любой символ...\n')
+                    exit()
 
 
 def open_for_user(email=None, direct=None):
@@ -926,7 +1095,7 @@ Proxy для сессий должны быть записаны в "input/proxy
         os.chdir(new_cwd)
         print(welcome_msg)
         try:
-        	open_for_user(direct=args[1])
+            open_for_user(direct=args[1])
         except Exception as err:
-        	print(err)
+            print(err)
         input('Введите любой символ для выхода... ')
