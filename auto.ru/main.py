@@ -11,11 +11,14 @@ from random import choice, randint
 from threading import Thread
 from time import sleep, time
 from traceback import format_exc
+from typing import TextIO
 
 import requests
 from bs4 import BeautifulSoup
 from selenium import webdriver
 from selenium.common.exceptions import NoSuchElementException
+from selenium.webdriver.common.action_chains import ActionChains
+from selenium.webdriver.common.keys import Keys
 from twocaptcha import TwoCaptcha
 
 
@@ -37,7 +40,7 @@ def check_manager(num, link):
     try:
         os.mkdir('products/link_' + str(num))
     except Exception:
-        log_error(u"Ошибка создания папки с продуктами")
+        pass
 
     response_end = requests.get(link).text
     soup_end = BeautifulSoup(response_end, "html.parser")
@@ -47,13 +50,13 @@ def check_manager(num, link):
     for page in range(1, e+1):
         check(num, link, page)
 
-    print(u'\nСсылки на все товыры получены')
+    print('\nСсылки на все товыры получены')
 
 
 def check(num, link, page):
     print('Ссылка ' + str(num) + ' - обработка страницы ' + str(page) + ' из 99')
     good_products = []
-    html_page = requests.get(f'{link}&page={page}').text
+    html_page = requests.get(link + '&page' + '=' + + 'page}').text
     soup = BeautifulSoup(html_page, "html.parser")
     products = map(lambda x: x['href'].strip(' \n'), soup.find_all("a", class_="ListingItemTitle-module__link"))
     # print(*goods, sep='\n')
@@ -114,8 +117,8 @@ def log_error(error_text=""):
 
 def read_links():
     with open('input/randtext&findlink.txt') as f:
-        links = tuple(map(lambda x: x[x.find(':')+1:].strip('\n'), f.readlines()))
-    return links
+        links = str(tuple(map(lambda x: x[x.find(':')+1:].strip('\n'), f.readlines())))
+        return links
 
 
 def check_manager(num, link):
@@ -277,13 +280,12 @@ def get_number():
 
 
 def sms_activate(id_act):
-    assert isinstance(id_act, object)
-    url = 'https://sms-activate.ru/stubs/handler_api.php?api_key=e1bfd58294A07360305082d40A929d1d&action=getStatus&id=' + str(id_act)
+    url0 = 'https://sms-activate.ru/stubs/handler_api.php?api_key=e1bfd58294A07360305082d40A929d1d&action=getStatus&id=' + str(id_act)
     begin = time()
-    response = requests.get(url).text
+    response = requests.get(url0).text
     print('Ожидание кода из sms...')
-    while 'STATUS_OK' not in response and time()-begin < 120:
-        response = requests.get(url).text
+    while not 'STATUS_OK' in response and time()-begin < 120:
+        response = requests.get(url0).text
         print('sms activate response status' + response)
         sleep(2)
     if 'STATUS_OK' in response:
@@ -598,7 +600,7 @@ def main_action(browser, iterations, text, rand_inserts, dot, text_no, link=None
     try:
         sleep(3)
         browser.find_element_by_class_name('ChatIndicator_unread')
-    except Exception:
+    except NoSuchElementException:
         log_error(u"Индикатор чата - есть непрочитанные сообщения")
     else:
         try:
@@ -630,12 +632,12 @@ def main_action(browser, iterations, text, rand_inserts, dot, text_no, link=None
                     log_error(str(err))
                 sleep(1)
         except Exception as err:
-            log_error(err)
+            log_error(str(err))
         finally:
             browser.find_element_by_class_name('ChatApp__close').click()
             try:
                 browser.find_element_by_class_name('ChatApp__close').click()
-            except:
+            except NoSuchElementException:
                 log_error('Не найдена кнопка закрытия чата')
 
     black_urls = []
@@ -701,7 +703,7 @@ def main_action(browser, iterations, text, rand_inserts, dot, text_no, link=None
                     browser.find_element_by_class_name('PersonalMessage_type_button').click()
                     sleep(3)
             else:
-                raise(NoSuchElementException)
+                raise NoSuchElementException
             sleep(1)
             if not debug:
                 browser.find_element_by_class_name('ChatInput__textarea').send_keys(rand_text)
@@ -805,7 +807,8 @@ def check_randtext(texts, rand_inserts):
         print('Один из возможных вариантов рандомного текста:')
         for j in range(len(rand_insert)):
             rand_text = rand_text.replace('$$' + str(j) + '$$', choice(rand_insert[j]))
-            print(rand_text)
+            print('Один из возможных вариантов рандомного текста:')
+        #print(rand_text)
 
 
 def get_iterations_and_acc():
@@ -848,6 +851,7 @@ def get_cookies_emails():
 
 def main():
     mode = 1
+    headless = False
 
     if mode == 1:
         texts, rand_inserts, dots = get_random_texts(mode)
@@ -880,6 +884,7 @@ def main():
        
         mode = 1
         headless = False
+        Use_Proxy = True
 
         if mode == 1:
             texts, rand_inserts, dots = get_random_texts(mode)
@@ -910,7 +915,9 @@ def main():
                 save_cookies(browser, login, black_urls)
                 print(str(i + 1) + ' Готово! Сессия для ' + login + ' успешно сохранена')
             if text_no >= len(texts):
+                text_no = 0
                 print('Рассылка сообщений по текущей ссылке завершена. Было отправлено ' + str(sent_messages_by_link) + ' сообщений(я)')
+                sent_messages_by_link = 0
     else:
         emails = get_cookies_emails()
         text_no = 0
@@ -1068,16 +1075,15 @@ def get_proxy(host, port, user, password):
 
 if __name__ == '__main__':
     args = sys.argv
-    welcome_msg = u'''
+    welcome_msg = '''
 Автоматизатор работы в auto.ru. © Максим Белов
 Proxy для сессий должны быть записаны в "input/proxy.txt" в формате "proxy:port login password", каждый адрес с новой строки
 Поисковая ссылка и сообщения, которые будут отправлены продавцам, должны быть записаны в "randtext&findlink.txt" в формате: "3.Текст {должен быть|нужен} с {несколькими|некоторым количеством} рандом {вставками|кусками}:findlink", где 3 - количество точек в конце сообщения
 Количество создаваемых аккаунтов и диапазон количества объявлений, которые будут обработаны, используя один аккаунт, должен быть записан в "input/count.txt" в формате "количество_аккаунтов:от-до" (например "3:4-6")
 Если используется вход по email, то email'ы и пароли должны быть записаны в "input/emails&passes.txt" в формате "email password", каждая пара с новой строки
 '''
-    #if len(args) == 1:
-    main()
-    """
+    if len(args) == 1:
+        main()
     elif len(args) == 2:
         new_cwd = args[0].replace('\\\\', '\\')
         new_cwd = new_cwd[:new_cwd.rfind('\\')]
@@ -1088,4 +1094,3 @@ Proxy для сессий должны быть записаны в "input/proxy
         except Exception as err:
             print(err)
         input('Введите любой символ для выхода... ')
-    """
