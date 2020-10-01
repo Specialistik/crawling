@@ -339,14 +339,14 @@ def first_browser_action(browser, email=None):
             try:
                 sleep(4)
                 browser.find_element_by_class_name('error-message')
-            except:
+            except Exception:
                 log_error('Не найден элемент текста с ошибкой')
             else:
                 try:
                     url = 'https://sms-activate.ru/stubs/handler_api.php?api_key=e1bfd58294A07360305082d40A929d1d&action=setStatus&status=8&id=' + id_act
                     print('sms activate url is ' + url)
                     r = requests.post(url)
-                except:
+                except Exception:
                     log_error('Ошибка при попытке получения номера телефона с sms-activate')
             code = sms_activate(id_act)
             sleep(1)
